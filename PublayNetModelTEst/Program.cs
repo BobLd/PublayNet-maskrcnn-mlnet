@@ -22,7 +22,7 @@ namespace PublayNetModelTEst
             { PublayNetCategories.Figure,       Color.Orange }
         };
 
-        //const string modelLocation = @"D:\MachineLearning\Document Layout Analysis\notebooks\PubLayNet\model_196000.onnx";
+        // Unzip the model first!
         const string modelLocation = @"..\..\..\..\Assets\Model\model_196000.onnx";
 
         const string imageFolder = @"Assets\Images";
