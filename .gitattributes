@@ -3,6 +3,9 @@
 ###############################################################################
 * text=auto
 
+# Help GitHub's linguist to detect correct language
+*.ipynb linguist-detectable=false
+
 ###############################################################################
 # Set default behavior for command prompt diff.
 #
