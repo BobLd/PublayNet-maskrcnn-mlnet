@@ -1,5 +1,5 @@
 # PublayNet-maskrcnn-mlnet
-Using a MaskRCNN model trained on the PublayNet dataset with [ML.Net](https://github.com/dotnet/machinelearning) in C# / .Net for Document layout analysis and page segmmentation task.
+Using a MaskRCNN model trained on the PublayNet dataset from [phamquiluan/PubLayNet](https://github.com/phamquiluan/PubLayNet) with [ML.Net](https://github.com/dotnet/machinelearning) in C# / .Net for Document layout analysis and page segmmentation task.
 
 Recognised regions/categories are:
 - Text (i.e. paragraph)
