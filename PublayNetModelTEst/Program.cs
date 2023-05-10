@@ -1,4 +1,5 @@
 ﻿using Microsoft.ML;
+using Microsoft.ML.Data;
 using Microsoft.ML.Transforms.Image;
 using PublayNetModelTEst.DataStructures;
 using System;
@@ -10,8 +11,12 @@ using static Microsoft.ML.Transforms.Image.ImageResizingEstimator;
 
 namespace PublayNetModelTEst
 {
+    // https://github.com/PaddlePaddle/PaddleOCR/blob/0850586667308d38e113447e8d095e955092fe53/ppstructure/layout/predict_layout.py#L66
+    // https://github.com/PaddlePaddle/PaddleOCR/blob/release/2.6/ppocr/postprocess/picodet_postprocess.py#L98
+
     class Program
     {
+        float[] strides = new float[] { 8, 16, 32, 64 };
         static readonly Dictionary<PublayNetCategories, Color> Categories2Colors = new Dictionary<PublayNetCategories, Color>()
         {
             { PublayNetCategories.Background,   Color.AliceBlue },
@@ -23,7 +28,7 @@ namespace PublayNetModelTEst
         };
 
         // Unzip the model first!
-        const string modelLocation = @"..\..\..\..\Assets\Model\model_196000.onnx";
+        const string modelLocation = @"C:\Users\Bob\Document Layout Analysis\PaddlePaddle\picodet_lcnet_x1_0_fgd_layout_infer\onnx\picodet_lcnet_x1_0_fgd_layout_infer.onnx";
 
         const string imageFolder = @"Assets\Images";
 
@@ -37,14 +42,28 @@ namespace PublayNetModelTEst
             mlContext.Log += MlContext_Log;
 
             // Define scoring pipeline
-            var pipeline = mlContext.Transforms.ResizeImages(inputColumnName: "bitmap", outputColumnName: "image",
-                                                             imageWidth: PublayNetBitmapData.NewSize, imageHeight: PublayNetBitmapData.NewSize,
+            var pipeline = mlContext.Transforms.ResizeImages(inputColumnName: "bitmap",
+                                                             outputColumnName: "image",
+                                                             imageWidth: PublayNetBitmapData.NewWidth,
+                                                             imageHeight: PublayNetBitmapData.NewHeight,
                                                              resizing: ResizingKind.IsoPad)
-                            .Append(mlContext.Transforms.ExtractPixels(outputColumnName: "image", scaleImage: 1f / 255f, orderOfExtraction: ImagePixelExtractingEstimator.ColorsOrder.ARGB))
+                            .Append(mlContext.Transforms.ExtractPixels(outputColumnName: "image",
+                                                    scaleImage: 1f / 255f,
+                                                    orderOfExtraction: ImagePixelExtractingEstimator.ColorsOrder.ARGB))
                             .Append(mlContext.Transforms.ApplyOnnxModel(inputColumnNames: new[] { "image" },
-                                                                        outputColumnNames: new[] { "boxes", "labels", "scores", "masks" },
-                                                                        modelFile: modelLocation));//gpuDeviceId: 0, fallbackToCpu: true,
-          
+                                                                        outputColumnNames: new[]
+                                                                        {
+                                                                            "transpose_0.tmp_0",
+                                                                            "transpose_2.tmp_0",
+                                                                            "transpose_4.tmp_0",
+                                                                            "transpose_6.tmp_0",
+
+                                                                            "transpose_1.tmp_0",
+                                                                            "transpose_3.tmp_0",
+                                                                            "transpose_5.tmp_0",
+                                                                            "transpose_7.tmp_0"
+                                                                        },
+                                                                        modelFile: modelLocation)); //gpuDeviceId: 0, fallbackToCpu: true,          
 
             // Fit on empty list to obtain input data schema
             var model = pipeline.Fit(mlContext.Data.LoadFromEnumerable(new List<PublayNetBitmapData>()));
@@ -53,28 +72,50 @@ namespace PublayNetModelTEst
             var predictionEngine = mlContext.Model.CreatePredictionEngine<PublayNetBitmapData, PublayNetPrediction>(model);
 
             // save model
-            //mlContext.Model.Save(model, predictionEngine.OutputSchema, Path.ChangeExtension(modelLocation, "zip"));
-            //var modelLoaded = mlContext.Model.Load(Path.ChangeExtension(modelLocation, "zip"), out var schema);
-
+            mlContext.Model.Save(model, predictionEngine.OutputSchema, Path.ChangeExtension(modelLocation, "mlnet.zip"));
+            var modelLoaded = mlContext.Model.Load(Path.ChangeExtension(modelLocation, "mlnet.zip"), out var schema);
             Stopwatch stopWatch = new Stopwatch();
             foreach (var imagePath in Directory.GetFiles(imageFolder))
             {
                 Console.WriteLine($"Processing {imagePath}...");
 
-                using (var bitmap = new Bitmap(Image.FromFile(imagePath)))
+                using (var bitmap = MLImage.CreateFromFile(imagePath)) //new Bitmap(Image.FromFile(imagePath)))
                 {
                     // predict
                     stopWatch.Start();
                     var prediction = predictionEngine.Predict(new PublayNetBitmapData() { Image = bitmap });
+
+                    const int num_outs = 4;
+                    var np_score_list = new float[num_outs][] // scores
+                    {
+                        prediction.t0,
+                        prediction.t2,
+                        prediction.t4,
+                        prediction.t6,
+                    };
+
+                    var np_boxes_list = new float[num_outs][] // raw_boxes
+                    {
+                        prediction.t1,
+                        prediction.t3,
+                        prediction.t5,
+                        prediction.t7,
+                    };
+
+                    //prediction.t2.GetValues().Slice()
+
+
+
                     var results = prediction.Process(0.5f);
                     stopWatch.Stop();
-                    Console.WriteLine($"Done in {stopWatch.Elapsed.TotalSeconds}s.");
+                    Console.WriteLine($"Done in {stopWatch.Elapsed.TotalSeconds:0.00}s.");
                     stopWatch.Reset();
-                    
+
                     prediction = null;
                     GC.Collect();
 
                     // draw predictions
+                    /*
                     using (var g = Graphics.FromImage(bitmap))
                     {
                         foreach (var result in results)
@@ -100,8 +141,10 @@ namespace PublayNetModelTEst
 
                         bitmap.Save(Path.Combine(imageOutputFolder, Path.GetFileName(imagePath)));
                     }
+                    */
                 }
             }
+            
 
             predictionEngine.Dispose();
             model.Dispose();

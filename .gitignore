@@ -362,3 +362,4 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 *.onnx
+/PublayNetModelTEst/Assets/Model/model_196000.mlnet.zip
