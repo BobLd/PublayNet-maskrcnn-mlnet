@@ -209,44 +209,6 @@ namespace PublayNetModelTEst
 
                     }
 
-                    //prediction.t2.GetValues().Slice()
-
-                    var results = prediction.Process(0.5f);
-                    stopWatch.Stop();
-                    Console.WriteLine($"Done in {stopWatch.Elapsed.TotalSeconds:0.00}s.");
-                    stopWatch.Reset();
-
-                    prediction = null;
-                    GC.Collect();
-
-                    // draw predictions
-                    /*
-                    using (var g = Graphics.FromImage(bitmap))
-                    {
-                        foreach (var result in results)
-                        {
-                            var x1 = result.Bbox[0];
-                            var y1 = result.Bbox[1];
-                            var w = result.Bbox[2] - x1;
-                            var h = result.Bbox[3] - y1;
-
-                            using (var pen = new Pen(Categories2Colors[result.Category]))
-                            {
-                                g.DrawRectangle(pen, x1, y1, w, h);
-                            }
-
-                            using (var brushes = new SolidBrush(Color.FromArgb(50, Categories2Colors[result.Category])))
-                            {
-                                g.FillRectangle(brushes, x1, y1, w, h);
-                            }
-
-                            g.DrawString(result.Category + " " + result.Score.ToString("0.00"),
-                                         new Font("Arial", 12), Brushes.Blue, new PointF(x1, y1));
-                        }
-
-                        bitmap.Save(Path.Combine(imageOutputFolder, Path.GetFileName(imagePath)));
-                    }
-                    */
                 }
             }
             
