@@ -2,11 +2,13 @@
 using Microsoft.ML.Data;
 using Microsoft.ML.Transforms.Image;
 using PublayNetModelTEst.DataStructures;
+using SliceAndDice;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using static Microsoft.ML.Transforms.Image.ImageResizingEstimator;
 
 namespace PublayNetModelTEst
@@ -16,7 +18,8 @@ namespace PublayNetModelTEst
 
     class Program
     {
-        float[] strides = new float[] { 8, 16, 32, 64 };
+        private static readonly float[] strides = new float[] { 8, 16, 32, 64 };
+
         static readonly Dictionary<PublayNetCategories, Color> Categories2Colors = new Dictionary<PublayNetCategories, Color>()
         {
             { PublayNetCategories.Background,   Color.AliceBlue },
@@ -72,8 +75,9 @@ namespace PublayNetModelTEst
             var predictionEngine = mlContext.Model.CreatePredictionEngine<PublayNetBitmapData, PublayNetPrediction>(model);
 
             // save model
-            mlContext.Model.Save(model, predictionEngine.OutputSchema, Path.ChangeExtension(modelLocation, "mlnet.zip"));
-            var modelLoaded = mlContext.Model.Load(Path.ChangeExtension(modelLocation, "mlnet.zip"), out var schema);
+            //mlContext.Model.Save(model, predictionEngine.OutputSchema, Path.ChangeExtension(modelLocation, "mlnet.zip"));
+            //var modelLoaded = mlContext.Model.Load(Path.ChangeExtension(modelLocation, "mlnet.zip"), out var schema);
+
             Stopwatch stopWatch = new Stopwatch();
             foreach (var imagePath in Directory.GetFiles(imageFolder))
             {
@@ -83,10 +87,12 @@ namespace PublayNetModelTEst
                 {
                     // predict
                     stopWatch.Start();
-                    var prediction = predictionEngine.Predict(new PublayNetBitmapData() { Image = bitmap });
+
+                    var img = new PublayNetBitmapData() { Image = bitmap };
+                    var prediction = predictionEngine.Predict(img);
 
                     const int num_outs = 4;
-                    var np_score_list = new float[num_outs][] // scores
+                    var scores = new float[num_outs][] // scores or np_score_list
                     {
                         prediction.t0,
                         prediction.t2,
@@ -94,7 +100,7 @@ namespace PublayNetModelTEst
                         prediction.t6,
                     };
 
-                    var np_boxes_list = new float[num_outs][] // raw_boxes
+                    var raw_boxes = new float[num_outs][] // raw_boxes or np_boxes_list
                     {
                         prediction.t1,
                         prediction.t3,
@@ -102,9 +108,92 @@ namespace PublayNetModelTEst
                         prediction.t7,
                     };
 
+                    /*
+                        box_distribute = box_distribute[batch_id]
+                        score = score[batch_id]
+                        # centers
+                        fm_h = input_shape[0] / stride
+                        fm_w = input_shape[1] / stride
+                        h_range = np.arange(fm_h)
+                        w_range = np.arange(fm_w)
+                        ww, hh = np.meshgrid(w_range, h_range)
+                        ct_row = (hh.flatten() + 0.5) * stride
+                        ct_col = (ww.flatten() + 0.5) * stride
+                        center = np.stack((ct_col, ct_row, ct_col, ct_row), axis=1)
+                     */
+
+                    const int reg_max = (int)(32.0 / 4.0 - 1); // raw_boxes[0].shape[-1] = 32?
+
+                    var a = new ArraySlice<float>(prediction.t0, new Shape(5, 7600));
+                    var t = a[":, 1"];
+                    t = a.GetSlice(Slice.All(), Slice.Index(1));
+
+
+                    //List<float> select_scores = new List<float>();
+                    //List<float[]> decode_boxes = new List<float[]>();
+
+                    List<(float, float[])> selected = new List<(float, float[])>();
+
+                    for (int i = 0; i < num_outs; i++)
+                    {
+                        List<(float, float[])> selected_stride = new List<(float, float[])>();
+                        float stride = strides[i];
+
+                        // Center
+                        int fm_h = (int)(PublayNetBitmapData.NewHeight / stride);
+                        int fm_w = (int)(PublayNetBitmapData.NewWidth / stride);
+
+                        //var box_distribute = raw_boxes[i];
+                        //var score = scores[i];
+                        var box_distribute = new ArraySlice<float>(raw_boxes[i], new Shape(32, fm_h, fm_w)); // fm_h * fm_w));
+                        var score = new ArraySlice<float>(scores[i], new Shape(5, fm_h, fm_w)); //fm_h * fm_w));
+
+                        for (int h = 0; h < fm_h; h++)
+                        {
+                            for (int w = 0; w < fm_w; w++)
+                            {
+                                float ct_row = (h + 0.5f) * stride;
+                                float ct_col = (w + 0.5f) * stride;
+
+                                var box_distribute_c = box_distribute.GetSlice(Slice.All(), Slice.Index(h), Slice.Index(w));
+                                var score_c = score.GetSlice(Slice.All(), Slice.Index(h), Slice.Index(w)).Max();
+
+                                var box_distance = new ArraySlice<float>(box_distribute_c.ToArray(), new Shape(4, reg_max + 1));
+                                float[] decode_box = new float[4];
+                                for (int d = 0; d < 4; d++)
+                                {
+                                    var sm = Softmax(box_distance.GetSlice(Slice.Index(d)).ToArray());
+                                    for (int k = 0; k < sm.Length; k++)
+                                    {
+                                        sm[k] = k * sm[k];
+                                    }
+                                    decode_box[d] = sm.Sum() * stride;
+                                }
+
+                                decode_box[0] = ct_col - decode_box[0];
+                                decode_box[1] = ct_row - decode_box[1];
+                                decode_box[2] += ct_col;
+                                decode_box[3] += ct_row;
+
+                                selected_stride.Add((score_c, decode_box));
+
+
+
+                                /*
+                                // box distribution to distance
+                                for (int r = 0; r < reg_max + 1; r++) // reg_range = np.arange(reg_max + 1)
+                                {
+
+                                }
+                                */
+
+                            }
+                        }
+
+                        selected.AddRange(selected_stride.OrderByDescending(x => x.Item1).Take(1000).ToArray());
+                    }
+
                     //prediction.t2.GetValues().Slice()
-
-
 
                     var results = prediction.Process(0.5f);
                     stopWatch.Stop();
@@ -151,6 +240,17 @@ namespace PublayNetModelTEst
 
             Console.WriteLine("Press any key to exit.");
             Console.ReadKey();
+        }
+
+
+        private static float[] Softmax(float[] values)
+        {
+            // https://learn.microsoft.com/en-us/dotnet/machine-learning/tutorials/object-detection-onnx#create-helper-functions
+            var maxVal = values.Max();
+            var exp = values.Select(v => Math.Exp(v - maxVal));
+            var sumExp = exp.Sum();
+
+            return exp.Select(v => (float)(v / sumExp)).ToArray();
         }
 
         private static void MlContext_Log(object sender, LoggingEventArgs e)

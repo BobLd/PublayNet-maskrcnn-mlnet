@@ -7,19 +7,6 @@ namespace PublayNetModelTEst.DataStructures
 {
     public class PublayNetPrediction
     {
-        //public readonly string[] Categories2Labels = new string[] { "bg", "text", "title", "list", "table", "figure" };
-
-        /*
-         *  "transpose_0.tmp_0",
-            "transpose_2.tmp_0",
-            "transpose_4.tmp_0",
-            "transpose_6.tmp_0",
-            "transpose_1.tmp_0",
-            "transpose_3.tmp_0",
-            "transpose_5.tmp_0",
-            "transpose_7.tmp_0"
-         */
-
         [ColumnName("width")]
         public float ImageWidth { get; set; }
 
