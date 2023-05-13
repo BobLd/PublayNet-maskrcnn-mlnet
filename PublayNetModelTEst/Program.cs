@@ -18,6 +18,8 @@ namespace PublayNetModelTEst
 
     class Program
     {
+        private const float score_threshold = 0.4f;
+
         private static readonly float[] strides = new float[] { 8, 16, 32, 64 };
 
         static readonly Dictionary<PublayNetCategories, Color> Categories2Colors = new Dictionary<PublayNetCategories, Color>()
@@ -132,11 +134,12 @@ namespace PublayNetModelTEst
                     //List<float> select_scores = new List<float>();
                     //List<float[]> decode_boxes = new List<float[]>();
 
-                    List<(float, float[])> selected = new List<(float, float[])>();
+                    List<(float[], float[])> selected = new List<(float[], float[])>();
 
                     for (int i = 0; i < num_outs; i++)
                     {
-                        List<(float, float[])> selected_stride = new List<(float, float[])>();
+                        List<(float[], float[])> selected_stride = new List<(float[], float[])>();
+
                         float stride = strides[i];
 
                         // Center
@@ -156,7 +159,7 @@ namespace PublayNetModelTEst
                                 float ct_col = (w + 0.5f) * stride;
 
                                 var box_distribute_c = box_distribute.GetSlice(Slice.All(), Slice.Index(h), Slice.Index(w));
-                                var score_c = score.GetSlice(Slice.All(), Slice.Index(h), Slice.Index(w)).Max();
+                                var score_c = score.GetSlice(Slice.All(), Slice.Index(h), Slice.Index(w)).ToArray();
 
                                 var box_distance = new ArraySlice<float>(box_distribute_c.ToArray(), new Shape(4, reg_max + 1));
                                 float[] decode_box = new float[4];
@@ -190,7 +193,20 @@ namespace PublayNetModelTEst
                             }
                         }
 
-                        selected.AddRange(selected_stride.OrderByDescending(x => x.Item1).Take(1000).ToArray());
+                        selected.AddRange(selected_stride.OrderByDescending(x => x.Item1.Max()).Take(1000));
+                    }
+
+                    List<(float[], float[])> picked = new List<(float[], float[])>();
+                    for (int i = 0; i < selected.Count; i++)
+                    {
+                        var s = selected[i];
+                        var bboxes = s.Item2;
+                        var confidences = s.Item1;
+                        var probs = confidences.Select((p, i) => new { i, p }).Where(v => v.p > score_threshold).ToArray();
+                        if (probs.Length == 0) continue;
+
+                        picked.Add(s);
+
                     }
 
                     //prediction.t2.GetValues().Slice()
